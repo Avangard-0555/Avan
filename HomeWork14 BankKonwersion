@@ -1,0 +1,87 @@
+import asyncio
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext  # Исправленный импорт
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.filters import Command
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+# Токен вашего бота
+API_TOKEN = "7564372102:AAEfE-VxNcmlzrTFDQZAqHqOoLYYpVJdw4A"
+
+# Инициализация бота и диспетчера
+bot = Bot(token=API_TOKEN)
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
+
+# Состояния для FSM
+class ConversionState(StatesGroup):
+    choosing_currency = State()
+    entering_amount = State()
+
+# Курсы валют (примерные значения)
+RATES = {
+    'USD_TO_SOM': 12100,
+    'EUR_TO_SOM': 12800,
+    'RUB_TO_SOM': 152,
+    'CNY_TO_SOM': 1700
+}
+
+# Функция для создания клавиатуры с валютами
+def create_currency_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.button(text="💵 Доллар (USD)", callback_data='USD_TO_SOM')
+    builder.button(text="💶 Евро (EUR)", callback_data='EUR_TO_SOM')
+    builder.button(text="🇷🇺 Рубль (RUB)", callback_data='RUB_TO_SOM')
+    builder.button(text="🇨🇳 Юань (CNY)", callback_data='CNY_TO_SOM')
+    builder.adjust(1)  # Размещаем кнопки в один столбец
+    return builder.as_markup()
+
+# Обработка команды /start
+@dp.message(Command("start"))
+async def welcome(message: types.Message):
+    """Приветственное сообщение с клавиатурой выбора валюты."""
+    await message.answer(
+        "👋 Добро пожаловать в конвертер валют!\n\n"
+        "Выберите валюту для конвертации:",
+        reply_markup=create_currency_keyboard()
+    )
+    await ConversionState.choosing_currency.set()
+
+# Обработка выбора валюты
+@dp.callback_query(lambda callback_query: callback_query.data in RATES)
+async def choose_currency(callback_query: CallbackQuery, state: FSMContext):
+    """Запрашивает ввод суммы после выбора валюты."""
+    currency = callback_query.data
+    await state.update_data(currency=currency)
+
+    await callback_query.message.edit_text("Введите сумму для конвертации:")
+    await ConversionState.entering_amount.set()
+
+# Обработка ввода суммы и выполнения конвертации
+@dp.message(ConversionState.entering_amount, F.text)
+async def convert_currency(message: types.Message, state: FSMContext):
+    """Выполняет конвертацию и выводит результат."""
+    try:
+        amount = float(message.text)  # Проверка на корректное число
+        data = await state.get_data()
+        currency = data['currency']
+        rate = RATES.get(currency)
+
+        result = amount * rate
+        await message.answer(f"💰 {amount} единиц = {result} сумов")
+    except ValueError:
+        await message.answer("❌ Ошибка: введите корректное число.")
+        return
+
+    await state.finish()  # Завершаем состояние
+
+# Основная функция для запуска бота
+async def main():
+    """Запуск бота."""
+    print("Бот запущен...")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
